@@ -221,6 +221,7 @@ Projeto-Remanexo/
 - [ ] Machine Learning para previsões
 - [ ] API REST pública
 
+
 ---
 
 ## 📄 Licença
