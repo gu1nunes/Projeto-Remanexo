@@ -1,233 +1,245 @@
 # 🎯 REMANEXO - Sistema Financeiro com POO
 
-> Sistema de gestão financeira com **Open Finance Simulado** desenvolvido em **Python com Flask e SQLite**
+> **Sistema de gestão financeira com Open Finance Simulado** desenvolvido em **Python/Flask/SQLite**
 >
-> Demonstração prática dos 4 pilares da **Programação Orientada a Objetos** em um ambiente funcional e real
-
-
-## ✨ Próposito do Projeto
-
-Remanexo é um **projeto educacional avançado** que implementa um sistema financeiro completo enquanto demonstra os conceitos fundamentais de POO:
-
-- ✅ **Abstração** → Classe abstrata `Transacao`
-- ✅ **Herança** → `Receita` e `Despesa` herdam de `Transacao`
-- ✅ **Encapsulamento** → Atributos privados em `Conta` com getters/setters
-- ✅ **Polimorfismo** → Padrão State no `Nexo` com comportamentos distintos
+> Demonstração prática dos **4 pilares da POO** em um ambiente funcional e real
 
 ---
 
 ## 🚀 Início Rápido
 
-### Requisitos
-- Python 3.8+
-- pip
-
-### Instalação
-
 ```bash
-# Clone ou acesse o diretório
 cd Projeto-Remanexo
-
-# Crie um ambiente virtual
-python -m venv venv
-
-# Ative o ambiente
-source venv/bin/activate  # Linux/Mac
-# ou
-venv\Scripts\activate     # Windows
-
-# Instale as dependências
-pip install -r requirements.txt
-
-# Execute
 python run.py
 ```
 
-Acesse **http://localhost:5000** no navegador.
+Acesse **http://localhost:5000**
 
----
-
-## 🔐 Credenciais Demo
-
+### 🔐 Credenciais Demo
 ```
 Email: demo@remanexo.com
 Senha: 123456
 ```
 
-> A conta demo vem com saldo inicial de R$ 5.000,00 e plano premium
+---
+
+## 🏛️ Arquitetura POO - Conceitos Centrais
+
+### 1️⃣ ABSTRAÇÃO - Classe Base `Transacao`
+**Arquivo**: `backend/database.py` (linhas 15-50)
+
+```python
+class Transacao(db.Model):
+    """Classe abstrata — define contrato para todas as transações"""
+    __abstract__ = True
+    
+    id = db.Column(db.Integer, primary_key=True)
+    tipo = db.Column(db.String(20), nullable=False)
+    valor = db.Column(db.Float, default=0.0)
+    status = db.Column(db.String(20), default='ativa')
+    
+    def calcular_impacto_saldo(self):
+        """Método polimórfico — cada subclasse implementa diferente"""
+        pass
+```
+
+**Propósito**: Define a interface comum que toda transação deve possuir, sem implementar comportamentos específicos.
 
 ---
 
-## 📊 Arquitetura POO
+### 2️⃣ HERANÇA - `ReceitaModel` e `DespesaModel`
+**Arquivo**: `backend/database.py` (linhas 51-90)
 
-### 1. ABSTRAÇÃO
 ```python
-# models/transacao.py
-class Transacao(ABC):
-    @abstractmethod
+class ReceitaModel(Transacao):
+    """Herda de Transacao — especializa para receitas"""
+    __tablename__ = 'receitas'
+    __mapper_args__ = {'polymorphic_identity': 'receita'}
+    
     def calcular_impacto_saldo(self):
-        pass
+        return self.valor  # ➕ soma ao saldo
+
+class DespesaModel(Transacao):
+    """Herda de Transacao — especializa para despesas"""
+    __tablename__ = 'despesas'
+    __mapper_args__ = {'polymorphic_identity': 'despesa'}
+    
+    def calcular_impacto_saldo(self):
+        return -self.valor  # ➖ subtrai do saldo
 ```
-Define contrato que toda transação deve cumprir.
 
-### 2. HERANÇA
+**Propósito**: Permite que Receita e Despesa herdem estrutura comum de Transacao, mas implementem `calcular_impacto_saldo()` diferentemente.
+
+**Benefício**: Reutilização de código + comportamentos especializados.
+
+---
+
+### 3️⃣ ENCAPSULAMENTO - Atributos Privados em `Conta`
+**Arquivo**: `backend/database.py` (linhas 130-180)
+
 ```python
-class Receita(Transacao):
-    def calcular_impacto_saldo(self):
-        return self.valor  # soma
-
-class Despesa(Transacao):
-    def calcular_impacto_saldo(self):
-        return -self.valor  # subtrai
-```
-Comportamentos especializados em subclasses.
-
-### 3. ENCAPSULAMENTO
-```python
-# models/conta.py
-class Conta:
+class ContaModel(db.Model):
+    __tablename__ = 'contas'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    _saldo = db.Column('saldo', db.Float, default=0.0)  # atributo privado
+    numero_conta = db.Column(db.String(20), unique=True)
+    
     @property
     def saldo(self):
+        """Getter — acesso controlado"""
         return self._saldo
     
     @saldo.setter
     def saldo(self, novo_saldo):
-        # validação aqui — dados protegidos
-        if novo_saldo < 0:
-            raise ValueError("saldo não pode ser negativo")
+        """Setter — validação antes de atualizar"""
+        if novo_saldo < -1000:  # limite de crédito
+            raise ValueError("Limite de crédito excedido")
         self._saldo = novo_saldo
 ```
-Atributos privados com acesso controlado.
 
-### 4. POLIMORFISMO (Padrão State)
+**Propósito**: Protege dados críticos com validação automática.
+
+**Invocado em**: `dashboard.py` (recalcula saldo com polimorfismo)
+
+---
+
+### 4️⃣ POLIMORFISMO - Dashboard Consolidado
+**Arquivo**: `backend/routes/dashboard.py` (linhas 115-135)
+
 ```python
-# models/nexo.py
-class EstadoNexo(ABC):
-    @abstractmethod
-    def sincronizar(self, fila):
-        pass
-
-class NexoAtivo(EstadoNexo):
-    def sincronizar(self, fila):
-        # processa normalmente
-        
-class NexoInstavel(EstadoNexo):
-    def sincronizar(self, fila):
-        # segura fila em cache
+@bp.route('/dashboard')
+def dashboard():
+    # Query polimórfica — busca receitas E despesas como uma lista
+    transacoes = db.session.query(TransacaoModel).filter(
+        TransacaoModel.conta_id == conta.id,
+        TransacaoModel.status == 'ativa'
+    ).all()
+    
+    # Polimorfismo em ação — cada transação usa SUA implementação
+    saldo = sum(tx.calcular_impacto_saldo() for tx in transacoes)
+    receitas = sum(tx.valor for tx in transacoes if tx.tipo == 'receita')
+    despesas = sum(tx.valor for tx in transacoes if tx.tipo == 'despesa')
 ```
-Cada estado implementa seu próprio comportamento.
+
+**Por que**: Sem polimorfismo, precisaríamos fazer queries separadas e lógica condicional complexa. Com polimorfismo, cada objeto sabe como calcular seu impacto.
+
+**Benefício**: Código limpo, extensível e alinhado com POO.
 
 ---
 
-## 📋 Funcionalidades (RF01-RF10)
+## 📋 Funcionalidades Atuais
 
-| RF | Funcionalidade | Status |
-|----|---|---|
-| RF01 | Autenticação email + senha (werkzeug hash) | ✅ |
-| RF02 | Open Finance simulado (Nexo 3 estados) | ✅ |
-| RF03 | Dashboard saldo consolidado tempo real | ✅ |
-| RF04 | Lixeira de transações (restaurar) | ✅ |
-| RF05 | Metas com barra de progresso visual | ✅ |
-| RF06 | Categorização automática por palavras-chave | ✅ |
-| RF07 | Importação transações via CSV | ✅ |
-| RF08 | Exportação relatório PDF | ⏳ Futuro |
-| RF09 | Notificações gasto excessivo (>80%) | ✅ |
-| RF10 | Conciliação manual sem API | ✅ |
+| Feature | Status | Localização |
+|---------|--------|-------------|
+| **Autenticação** (email + senha com hash) | ✅ | `dashboard.py` |
+| **Dashboard** (saldo consolidado tempo real) | ✅ | `dashboard.py` |
+| **Transações** (adicionar, editar, descartar) | ✅ | `transacoes.py` |
+| **Lixeira** (restaurar/deletar permanentemente) | ✅ | `transacoes.py` (aba) |
+| **Parcelamentos** (receitas/despesas parceladas) | ✅ | `parcelamentos.py` |
+| **Categorias** (gerenciar + palavras-chave) | ✅ | `categorias.py` |
+| **Open Finance (Nexo)** (3 estados: ativo/instável/erro) | ✅ | `nexo.py` |
+| **Metas** (criar, progresso visual) | ✅ | `metas.py` |
+| **Categorização automática** (por palavras-chave) | ✅ | `transacoes.py` |
+| **Import CSV** (via Nexo) | ✅ | `nexo.py` |
 
 ---
 
-## 📁 Estrutura do Projeto
+## 🎯 Detalhes de Implementação
+
+### Transações (Herança + Polimorfismo)
+- **Receita**: `+` saldo
+- **Despesa**: `-` saldo
+- **Parcelada**: Valor adicionado ao saldo apenas quando parcela é paga/recebida
+- **Categorização**: Automática por palavras-chave ou manual
+- **Lixeira**: Status `descartada` — não afeta saldo
+- **Edição**: Modal inline com validação
+
+### Open Finance (Padrão State + Polimorfismo)
+- **Ativo**: Sincroniza imediatamente
+- **Instável**: Segura fila em cache local
+- **Erro**: Bloqueia sincronização, permite recuperação
+
+### Parcelamentos (Herança POO)
+- Recebe/Paga parcela → atualiza saldo incrementalmente
+- Receita: botão "Receber" | Despesa: botão "Pagar"
+- Status: Pendente → Paga/Descartada
+- Vencimento com alerta visual
+
+### Categorias (Persistência em BD)
+- 10 categorias padrão criadas no startup
+- Palavras-chave customizáveis em tempo real
+- Categorização automática aplica-se à transação seguinte
+
+---
+
+## 📁 Estrutura
 
 ```
 Projeto-Remanexo/
-├── backend/                     # 🔧 Código do servidor
-│   ├── models/
-│   │   ├── transacao.py         # Abstração + Herança
-│   │   ├── nexo.py              # Polimorfismo (State Pattern)
-│   │   ├── conta.py             # Encapsulamento
-│   │   ├── meta.py, usuario.py, assinatura.py
-│   │   └── __init__.py
+├── backend/
+│   ├── database.py          # Models: Transacao + Herança
+│   ├── app.py               # Factory Flask
 │   ├── routes/
-│   │   ├── dashboard.py         # RF01, RF03, RF09
-│   │   ├── transacoes.py        # RF04, RF06, RF07, RF10
-│   │   ├── metas.py             # RF05
-│   │   ├── nexo.py              # RF02
-│   │   └── __init__.py
-│   ├── templates/               # 🎨 Templates HTML
-│   │   ├── base.html, dashboard.html
-│   │   ├── transacoes.html, metas.html, nexo.html
-│   │   └── login.html, cadastro.html
-│   ├── static/                  # 📁 CSS/JS customizado
-│   ├── database.py              # SQLAlchemy models
-│   ├── app.py                   # Factory Flask
-│   └── __init__.py
-├── frontend/                    # 📱 Frontend (futuro)
-├── database/                    # 🗄️ Scripts de banco
-├── docs/                        # 📚 Documentação extra
-├── run.py                       # Ponto de entrada
+│   │   ├── dashboard.py     # Polimorfismo em ação
+│   │   ├── transacoes.py    # Herança + Categorização
+│   │   ├── parcelamentos.py # Parcelamentos
+│   │   ├── categorias.py    # Categorias + Palavras-chave
+│   │   ├── nexo.py          # Padrão State
+│   │   └── metas.py
+│   ├── templates/
+│   │   ├── dashboard.html
+│   │   ├── transacoes.html  # Abas: Ativas | Lixeira
+│   │   ├── parcelamentos.html
+│   │   ├── categorias.html
+│   │   ├── nexo.html
+│   │   └── base.html        # Menu principal
+│   └── static/
+├── run.py                   # Entrada
 ├── requirements.txt
-├── start.bat / start.sh         # Scripts de inicialização
-├── README.md, INSTALL.md, ARQUITETURA.md, CHECKLIST.md
-└── ... arquivos adicionais
+└── README.md
 ```
 
 ---
 
-## 🎨 Design Visual
+## 🧪 Testando os Conceitos
 
-- **Paleta**: Azul escuro (#1a2e4a), Verde (#28a745), Vermelho (#dc3545)
-- **Framework**: Bootstrap 5 via CDN
-- **Layout**: Responsivo e moderno
+### Herança em Ação
+1. **Transações** → Adicione receita + despesa
+2. **Dashboard** → Veja ambas impactarem saldo de formas diferentes
 
----
+### Polimorfismo em Ação
+1. **Dashboard** → Saldo = Σ(tx.calcular_impacto_saldo())
+2. Cada tx chama SUA versão do método
 
-## 🧪 Testando os Conceitos POO
+### Encapsulamento em Ação
+- Tente editar transação com valor negativo
+- Validação protege integridade
 
-### Teste Polimorfismo
-1. Vá para Transações
-2. Adicione receita de R$ 100 + despesa de R$ 30
-3. Veja como cada uma impacta o saldo diferentemente
-
-### Teste Padrão State
-1. Acesse Nexo → Open Finance
-2. Mude estado para "Instável"
-3. Clique "Sincronizar" e observe comportamento diferente
-
-### Teste Encapsulamento
-- Tente acessar `conta._saldo` diretamente (protegido)
-
-### Teste Categorização
-- Adicione: "Uber 15km" → categoriza como "transporte"
-- Adicione: "Supermercado" → categoriza como "alimentação"
+### Parcelamentos (Herança + Lógica)
+- Crie receita parcelada → valor inicial = 0 no saldo
+- Clique "Receber" em parcela → saldo atualiza apenas daquela parcela
 
 ---
 
-## 💻 Tecnologias
+## 💻 Tech Stack
 
-- **Backend**: Python 3.8+, Flask 2.3.3
-- **Banco**: SQLite com SQLAlchemy
-- **Frontend**: HTML5 + Bootstrap 5 + JavaScript vanilla
+- **Backend**: Python 3.8+, Flask 2.3
+- **BD**: SQLite + SQLAlchemy ORM (suporta polimorfismo)
+- **Frontend**: HTML5 + Bootstrap 5 + Vanilla JS
 - **Auth**: Werkzeug (hash seguro)
-- **Sessions**: Flask-Session
-
+- **Sessões**: Flask-Session
 
 ---
 
-## 🔮 Próximas Versões
+## 🔮 Roadmap
 
+- [ ] Relatório PDF
+- [ ] Notificações gastos excessivos
 - [ ] Gráficos avançados
-- [ ] Integração real com Open Finance
-- [ ] App Mobile (React Native)
-- [ ] Machine Learning para previsões
-- [ ] API REST pública
-
+- [ ] Integração real Open Finance
+- [ ] App Mobile
 
 ---
 
-## 📄 Licença
-
-MIT - Sinta-se livre para usar, aprender e compartilhar!
-
----
-
-**Remanexo** © 2026
+**Remanexo** © 2026 | Desenvolvido com POO e muito café ☕

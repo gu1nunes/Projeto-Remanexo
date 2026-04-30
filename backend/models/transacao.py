@@ -39,7 +39,7 @@ class Transacao(ABC):
         return f"<{self.__class__.__name__} {self.descricao}: R$ {self.valor:.2f}>"
 
 
-# aqui é onde o herança salva a pátria — receita soma, despesa subtrai
+# aqui é onde o polimorfismo salva a pátria — receita soma, despesa subtrai
 class Receita(Transacao):
     def calcular_impacto_saldo(self):
         # receita soma
